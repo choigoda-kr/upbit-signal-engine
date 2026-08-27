@@ -1,0 +1,8 @@
+streamlit==1.32.0
+pandas==2.2.1
+pyupbit==0.2.33
+numpy==1.26.4
+streamlit-autorefresh==1.0.1
+
+gspread==6.1.2
+google-auth==2.34.0

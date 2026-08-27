@@ -1,0 +1,28 @@
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Data files
+*.db
+*.sqlite3
+*.xlsx
+*.csv
+
+# IDEs and Tools
+.vscode/
+.idea/
+temp_agentation/
+get-pip.py
+
+# Streamlit
+.streamlit/secrets.toml
