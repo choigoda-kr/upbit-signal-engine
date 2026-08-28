@@ -178,6 +178,8 @@ def get_today_fixed_portfolio():
         conn.close()
     return "데이터 없음"
 
+YEARS = [2024, 2025, 2026]
+
 def get_annual_returns():
     conn = db_manager.get_connection()
     try:
@@ -187,36 +189,46 @@ def get_annual_returns():
             today_date = (now - pd.Timedelta(days=1)).strftime('%Y-%m-%d 09:00:00')
         else:
             today_date = now.strftime('%Y-%m-%d 09:00:00')
-            
+
         query = f"SELECT date, actual_return FROM daily_portfolio_log WHERE date <= '{today_date}' ORDER BY date ASC"
         df = pd.read_sql(query, conn)
-        
+
         if df.empty:
-            return None
-            
+            return {year: None for year in YEARS}
+
         df['date'] = pd.to_datetime(df['date'])
-        
-        def calc_annual(df, col):
-            df['net'] = df[col] / 100.0
-            results = {}
-            for year in [2024, 2025, 2026]:
-                ydf = df[df['date'].dt.year == year]
-                if not ydf.empty:
-                    ret = (1 + ydf['net']).prod() - 1
-                    results[f"{year}년"] = f"{ret*100:.2f}%"
-                else:
-                    results[f"{year}년"] = "-"
-            return results
-            
-        ret_A = calc_annual(df.copy(), 'actual_return')
-        
-        return pd.DataFrame([ret_A])
-        
+        df['net'] = df['actual_return'] / 100.0
+
+        results = {}
+        for year in YEARS:
+            ydf = df[df['date'].dt.year == year]
+            if not ydf.empty:
+                results[year] = (1 + ydf['net']).prod() - 1
+            else:
+                results[year] = None
+        return results
+
     except Exception as e:
-        pass
+        return {year: None for year in YEARS}
     finally:
         conn.close()
-    return None
+
+def get_year_detail(year):
+    """해당 연도의 일별 매수종목/수익률/누적지수(1/1=100 기준) 조회 - 클릭 시마다 실시간 계산"""
+    conn = db_manager.get_connection()
+    try:
+        query = "SELECT date, recommended_portfolio, actual_return FROM daily_portfolio_log WHERE strftime('%Y', date) = ? ORDER BY date ASC"
+        df = pd.read_sql(query, conn, params=(str(year),))
+        if df.empty:
+            return None
+        df['date'] = pd.to_datetime(df['date'])
+        df['누적지수'] = 100 * (1 + df['actual_return'] / 100.0).cumprod()
+        df.rename(columns={'recommended_portfolio': '매수종목', 'actual_return': '일별수익률(%)'}, inplace=True)
+        return df[['date', '매수종목', '일별수익률(%)', '누적지수']]
+    except Exception:
+        return None
+    finally:
+        conn.close()
 
 today_fixed = get_today_fixed_portfolio().replace('KRW-', '')
 tomorrow_live = get_live_prediction().replace('KRW-', '')
@@ -243,14 +255,81 @@ with col2:
         </div>
     """, unsafe_allow_html=True)
 
-df_a = get_annual_returns()
+st.markdown("""
+    <style>
+    .year-return-title {
+        text-align: center;
+        margin-bottom: 20px;
+    }
+    div[data-testid="stHorizontalBlock"] .stButton > button {
+        width: 100%;
+        border-radius: 16px;
+        border: 1px solid #E5E5EA;
+        background-color: #FFFFFF;
+        padding: 20px 8px;
+        line-height: 1.6;
+        white-space: pre-line;
+        transition: all 0.15s ease;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+    }
+    div[data-testid="stHorizontalBlock"] .stButton > button:hover {
+        border-color: #007AFF;
+        color: #007AFF;
+        box-shadow: 0 6px 14px rgba(0, 122, 255, 0.15);
+        transform: translateY(-2px);
+    }
+    div[data-testid="stHorizontalBlock"] .stButton > button:focus:not(:active) {
+        border-color: #007AFF;
+        color: #1D1D1F;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-if df_a is not None:
-    html_table = df_a.to_html(classes="table", index=False, border=0)
-    st.markdown(f"""
-        <div class="apple-card">
-            <div class="apple-title">연도별 수익률</div>
-            <div class="apple-metric-label">Annual Returns</div>
-            {html_table}
-        </div>
-    """, unsafe_allow_html=True)
+if "selected_year" not in st.session_state:
+    st.session_state.selected_year = None
+
+annual_returns = get_annual_returns()
+
+st.markdown("""
+    <div class="apple-card">
+        <div class="apple-title year-return-title">연도별 수익률</div>
+        <div class="apple-metric-label" style="text-align:center;">Annual Returns · 클릭하면 일별 상세가 펼쳐집니다</div>
+""", unsafe_allow_html=True)
+
+_, *year_cols, _ = st.columns([1] + [3] * len(YEARS) + [1])
+for col, year in zip(year_cols, YEARS):
+    ret = annual_returns.get(year)
+    ret_text = f"{ret*100:+.2f}%" if ret is not None else "-"
+    with col:
+        if st.button(f"{year}년\n{ret_text}", key=f"year_btn_{year}", use_container_width=True):
+            st.session_state.selected_year = None if st.session_state.selected_year == year else year
+
+st.markdown("</div>", unsafe_allow_html=True)
+
+if st.session_state.selected_year is not None:
+    detail_df = get_year_detail(st.session_state.selected_year)
+    if detail_df is not None:
+        chart_df = detail_df.set_index('date')[['누적지수']]
+        display_df = detail_df.copy()
+        display_df['date'] = display_df['date'].dt.strftime('%Y-%m-%d')
+        display_df['일별수익률(%)'] = display_df['일별수익률(%)'].round(2)
+        display_df['누적지수'] = display_df['누적지수'].round(2)
+
+        st.markdown(f"""
+            <div class="apple-card">
+                <div class="apple-title">{st.session_state.selected_year}년 상세 (1/1 = 100 기준)</div>
+        """, unsafe_allow_html=True)
+        st.line_chart(chart_df, height=280)
+        st.dataframe(
+            display_df.rename(columns={'date': '날짜'}),
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+            <div class="apple-card">
+                <div class="apple-title">{st.session_state.selected_year}년 상세</div>
+                <div class="apple-metric-label">해당 연도 데이터가 없습니다.</div>
+            </div>
+        """, unsafe_allow_html=True)
