@@ -14,7 +14,7 @@ except:
 from config import TARGET_TICKERS
 import db_manager
 
-st.set_page_config(page_title="업비트 퀀트 시뮬레이터", layout="wide")
+st.set_page_config(page_title="c 퀀트 시뮬레이터", layout="wide")
 
 # 애플 테마 스타일 주입
 st.markdown("""
