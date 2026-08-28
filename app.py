@@ -146,8 +146,8 @@ def get_live_prediction():
         coin_b = mom_ma_valid.idxmax()
         
         if coin_a == coin_b and len(valid_coins) > 1:
-            mom1_valid = mom1_valid.drop(coin_a)
-            coin_a = mom1_valid.idxmax()
+            mom_ma_valid = mom_ma_valid.drop(coin_b)
+            coin_b = mom_ma_valid.idxmax()
             
         if len(valid_coins) == 1:
             target_weights[coin_a] = weight_total
