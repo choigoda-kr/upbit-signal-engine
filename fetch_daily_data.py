@@ -1,3 +1,4 @@
+import os
 import pyupbit
 import time
 import pandas as pd
