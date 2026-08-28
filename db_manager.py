@@ -52,7 +52,25 @@ def _get_db_file():
 
 DB_FILE = _get_db_file()
 
+def _refresh_if_stale():
+    """클라우드 캐시(DB_FILE=CLOUD_DB)일 때만, GCS 원본이 더 최신이면 재다운로드"""
+    if DB_FILE != CLOUD_DB:
+        return
+    try:
+        client = _get_gcs_client()
+        blob = client.bucket(GCS_BUCKET).get_blob(GCS_BLOB)
+        if blob is None:
+            return
+        remote_mtime = blob.updated.timestamp()
+        local_mtime = os.path.getmtime(CLOUD_DB)
+        if remote_mtime > local_mtime:
+            print("[GCS] 원본이 로컬 캐시보다 최신 → 재다운로드")
+            _download_db_from_gcs()
+    except Exception as e:
+        print(f"[GCS] 최신 여부 확인 실패, 기존 캐시 사용: {e}")
+
 def get_connection():
+    _refresh_if_stale()
     return sqlite3.connect(DB_FILE)
 
 def init_db():
