@@ -5,7 +5,7 @@ import os
 from config import TARGET_TICKERS
 
 # ─── GCS 설정 ────────────────────────────────────────────────
-GCS_BUCKET = "choigoda-upbit-db"           # GCS 버킷 이름
+GCS_BUCKET = "upbit-signal-engine-db-bucket"  # GCS 버킷 이름
 GCS_BLOB   = "upbit_market_data.db"        # GCS 내 파일 이름
 LOCAL_DB   = "upbit_market_data.db"        # 로컬 실행 경로
 CLOUD_DB   = "/tmp/upbit_market_data.db"   # 클라우드 임시 경로
