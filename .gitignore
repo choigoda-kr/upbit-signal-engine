@@ -18,6 +18,9 @@ __pycache__/
 *.xlsx
 *.csv
 
+# GCS 자격증명 (절대 깃허브에 올리면 안 됨!)
+gcs_credentials.json
+
 # IDEs and Tools
 .vscode/
 .idea/

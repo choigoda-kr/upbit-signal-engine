@@ -178,6 +178,31 @@ def fetch_all_tickers():
     conn.close()
     
     print("[백엔드] 모든 데이터 적재 완료!")
+    
+    # ─── GCS 업로드 ──────────────────────────────────────────────
+    _upload_db_to_gcs()
+    # ─────────────────────────────────────────────────────────────
+
+def _upload_db_to_gcs():
+    """로컬 .db 파일을 GCS 버킷에 업로드"""
+    try:
+        from google.cloud import storage
+        from google.oauth2 import service_account
+        import db_manager
+
+        cred_file = "gcs_credentials.json"
+        if os.path.exists(cred_file):
+            credentials = service_account.Credentials.from_service_account_file(cred_file)
+            client = storage.Client(credentials=credentials)
+        else:
+            client = storage.Client()  # GOOGLE_APPLICATION_CREDENTIALS 환경변수 사용
+
+        bucket = client.bucket(db_manager.GCS_BUCKET)
+        blob = bucket.blob(db_manager.GCS_BLOB)
+        blob.upload_from_filename(db_manager.LOCAL_DB)
+        print(f"[GCS] DB 업로드 완료! → gs://{db_manager.GCS_BUCKET}/{db_manager.GCS_BLOB}")
+    except Exception as e:
+        print(f"[GCS] 업로드 실패 (로컬 데이터는 정상 저장됨): {e}")
 
 if __name__ == "__main__":
     fetch_all_tickers()
