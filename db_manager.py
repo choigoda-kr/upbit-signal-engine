@@ -43,8 +43,8 @@ def _get_db_file():
     # 1. 로컬 DB 파일이 있으면 그대로 사용
     if os.path.exists(LOCAL_DB):
         return LOCAL_DB
-    # 2. 클라우드 임시 경로에 이미 다운로드된 경우
-    if os.path.exists(CLOUD_DB):
+    # 2. 클라우드 임시 경로에 이미 정상적으로 다운로드된 경우 (0바이트 실패 잔해는 무시)
+    if os.path.exists(CLOUD_DB) and os.path.getsize(CLOUD_DB) > 0:
         return CLOUD_DB
     # 3. 클라우드 환경: GCS에서 다운로드
     _download_db_from_gcs()
