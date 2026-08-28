@@ -1,0 +1,31 @@
+name: Daily Upbit Data Fetch
+
+on:
+  schedule:
+    - cron: '10 0 * * *'  # UTC 00:10 = KST 09:10
+  workflow_dispatch: {}
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Write GCS credentials
+        run: echo "$GCS_CREDENTIALS" > gcs_credentials.json
+        env:
+          GCS_CREDENTIALS: ${{ secrets.GCS_CREDENTIALS }}
+
+      - name: Run daily fetch
+        run: python fetch_daily_data.py
+
+      - name: Clean up credentials
+        if: always()
+        run: rm -f gcs_credentials.json
