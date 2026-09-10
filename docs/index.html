@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="theme-color" content="#1F4E79">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="오늘매매">
+<title>오늘매매</title>
+<style>
+  :root{
+    --navy:#1F4E79; --gold:#BF8F00; --dgray:#404040;
+    --line:#E0E0E0; --bg:#F5F6F8; --card:#FFFFFF;
+    --up:#D32F2F; --down:#1565C0;
+    --okbg:#C6EFCE; --okfg:#006100;
+    --ngbg:#FFC7CE; --ngfg:#9C0006;
+    --warn:#FFF2CC;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{
+    margin:0; padding:0 12px 32px;
+    background:var(--bg); color:#222;
+    font-family:-apple-system,BlinkMacSystemFont,"Malgun Gothic","맑은 고딕",
+                "Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+    font-size:15px; line-height:1.5;
+    max-width:520px; margin:0 auto;
+  }
+  h1{font-size:19px;margin:18px 0 2px;font-weight:700}
+  .sub{font-size:12px;color:#888;margin-bottom:14px}
+
+  /* ── 로그인 ── */
+  #login{display:none;padding:60px 8px}
+  #login.on{display:block}
+  #login .box{background:var(--card);border-radius:14px;padding:28px 20px;
+    box-shadow:0 2px 10px rgba(0,0,0,.07);text-align:center}
+  #login .lock{font-size:38px;margin-bottom:6px}
+  #login h2{font-size:18px;margin:0 0 22px;font-weight:700}
+  input[type=password]{
+    width:100%;padding:13px 14px;font-size:16px;
+    border:1px solid #CFCFCF;border-radius:9px;outline:none;background:#FAFAFA}
+  input[type=password]:focus{border-color:var(--navy);background:#fff}
+  button{
+    width:100%;margin-top:11px;padding:13px;font-size:16px;font-weight:700;
+    color:#fff;background:var(--navy);border:0;border-radius:9px;cursor:pointer}
+  button:active{opacity:.85}
+  .err{color:var(--ngfg);font-size:13px;margin-top:12px;min-height:18px}
+
+  /* ── 본문 ── */
+  #app{display:none}
+  #app.on{display:block}
+  .card{background:var(--card);border-radius:12px;overflow:hidden;
+    margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+  .hd{display:flex;align-items:center;gap:8px;padding:11px 14px;color:#fff;font-weight:700}
+  .hd.today{background:var(--navy)}
+  .hd.tmr{background:var(--gold)}
+  .hd.stat{background:var(--dgray)}
+  .hd .ttl{flex:1;font-size:15px}
+  .chip{font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px}
+  .chip.ok{background:var(--okbg);color:var(--okfg)}
+  .chip.ng{background:var(--ngbg);color:var(--ngfg)}
+
+  .pair{display:flex;gap:1px;background:var(--line)}
+  .slot{flex:1;background:#fff;padding:15px 8px;text-align:center}
+  .slot .nm{font-size:20px;font-weight:800;letter-spacing:.4px}
+  .slot .wt{font-size:15px;color:#333;margin-top:5px;font-weight:600}
+  .slot .sub2{font-size:12px;color:#999;margin-top:3px}
+  .slot .rt{font-size:14px;margin-top:5px;font-weight:700}
+  .up{color:var(--up)} .down{color:var(--down)}
+
+  .foot{display:flex;justify-content:space-between;
+    padding:10px 14px;font-size:13px;color:#666;border-top:1px solid var(--line)}
+  .note{padding:9px 14px;font-size:12px;color:#8a6d00;background:var(--warn)}
+
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:9px 10px;border-bottom:1px solid var(--line)}
+  th{background:#F0F1F3;font-weight:700;font-size:13px}
+  td:first-child,th:first-child{text-align:left}
+  td:not(:first-child),th:not(:first-child){text-align:right}
+  tr.key td{background:var(--warn);font-weight:700}
+
+  .warn{background:var(--warn);border-radius:10px;padding:11px 13px;
+    font-size:12px;color:#7a6000;margin-bottom:14px}
+  .warn div{margin:2px 0}
+  .btns{display:flex;gap:9px}
+  .btns button{margin:0}
+  .ghost{background:#fff;color:#666;border:1px solid #CFCFCF}
+  .stamp{text-align:center;font-size:11px;color:#aaa;margin:14px 0 4px}
+  .cash{color:#777}
+</style>
+</head>
+<body>
+
+<!-- ── 로그인 ── -->
+<section id="login">
+  <div class="box">
+    <div class="lock">🔒</div>
+    <h2>오늘매매</h2>
+    <input type="password" id="pw" placeholder="비밀번호" autocomplete="current-password">
+    <button id="btnLogin">확인</button>
+    <div class="err" id="err"></div>
+  </div>
+</section>
+
+<!-- ── 본문 ── -->
+<section id="app">
+  <h1>📊 오늘매매</h1>
+  <div class="sub" id="stamp">불러오는 중…</div>
+
+  <div class="card">
+    <div class="hd today"><span class="ttl" id="tdTitle">오늘</span><span class="chip" id="tdGate">-</span></div>
+    <div class="pair">
+      <div class="slot"><div class="nm" id="tdC1">-</div><div class="wt" id="tdW1">-</div><div class="rt" id="tdR1">-</div></div>
+      <div class="slot"><div class="nm" id="tdC2">-</div><div class="wt" id="tdW2">-</div><div class="rt" id="tdR2">-</div></div>
+    </div>
+    <div class="foot"><span class="cash">현금 <b id="tdCash">-</b></span><span>총비중 <b id="tdTot">-</b></span></div>
+  </div>
+
+  <div class="card">
+    <div class="hd tmr"><span class="ttl" id="tmTitle">내일</span><span class="chip" id="tmGate">-</span></div>
+    <div class="pair">
+      <div class="slot"><div class="nm" id="tmC1">-</div><div class="wt" id="tmW1">-</div><div class="sub2">MA3변동 1위</div></div>
+      <div class="slot"><div class="nm" id="tmC2">-</div><div class="wt" id="tmW2">-</div><div class="sub2">MA3변동 2위</div></div>
+    </div>
+    <div class="foot"><span class="cash">현금 <b id="tmCash">-</b></span><span>총비중 <b id="tmTot">-</b></span></div>
+    <div class="note">⚠ 내일 오전 9시 확정 전까지 순위가 바뀌면 종목도 바뀝니다</div>
+  </div>
+
+  <div class="card">
+    <div class="hd stat"><span class="ttl">매수 시 통계</span></div>
+    <table>
+      <thead><tr><th>지표</th><th>전체기간</th><th>최근 1년</th></tr></thead>
+      <tbody id="stBody"></tbody>
+    </table>
+  </div>
+
+  <div class="warn">
+    <div>⚠ 위 통계는 과거 평균이며 미래를 보장하지 않습니다.</div>
+    <div>⚠ 상승확률은 50% 안팎입니다. 수익은 확률이 아니라 손익비에서 나옵니다.</div>
+  </div>
+
+  <div class="btns">
+    <button id="btnReload">새로고침</button>
+    <button id="btnLogout" class="ghost">로그아웃</button>
+  </div>
+  <div class="stamp" id="foot"></div>
+</section>
+
+<script>
+/* ────────────────────────────────────────────────
+   GAS 웹앱 배포 URL — 배포 후 이 값을 교체한다
+   ──────────────────────────────────────────────── */
+var API_URL = 'https://script.google.com/macros/s/AKfycbwdodi0yNEHwnh0phAnrslHaDVDeTAk5c5h2OcHd8U5CX6w7U2RVvp_UzD0sH2yfI_y/exec';
+
+var KEY = 'ottm_auth';           // 로그인 상태 저장 키 (무기한)
+var TIMER = null;
+
+var $ = function (id) { return document.getElementById(id); };
+
+/* 비밀번호 → SHA-256 (평문은 브라우저 밖으로 나가지 않는다) */
+function sha256(text) {
+  var buf = new TextEncoder().encode(text);
+  return crypto.subtle.digest('SHA-256', buf).then(function (d) {
+    return Array.prototype.map.call(new Uint8Array(d), function (b) {
+      return ('0' + b.toString(16)).slice(-2);
+    }).join('');
+  });
+}
+
+function pct(v, sign) {
+  if (v === null || v === undefined || v === '') return '-';
+  var s = (v * 100).toFixed(2) + '%';
+  return (sign && v > 0) ? '+' + s : s;
+}
+function cls(v) { return (v > 0) ? 'up' : (v < 0 ? 'down' : ''); }
+
+function getHash() { try { return localStorage.getItem(KEY) || ''; } catch (e) { return ''; } }
+function setHash(h) { try { localStorage.setItem(KEY, h); } catch (e) {} }
+function clearHash() { try { localStorage.removeItem(KEY); } catch (e) {} }
+
+function show(which) {
+  $('login').className = (which === 'login') ? 'on' : '';
+  $('app').className   = (which === 'app')   ? 'on' : '';
+}
+
+function fetchData(hash) {
+  return fetch(API_URL + '?h=' + encodeURIComponent(hash), { cache: 'no-store' })
+    .then(function (r) { return r.json(); });
+}
+
+function render(d) {
+  $('stamp').textContent = d.stamp + ' 기준';
+  $('foot').textContent  = '마지막 갱신 ' + d.stamp;
+
+  function gate(el, g) {
+    var ok = (g === 'ok');
+    el.textContent = ok ? 'ok' : 'pass';
+    el.className = 'chip ' + (ok ? 'ok' : 'ng');
+  }
+
+  var t = d.today, m = d.tomorrow;
+  $('tdTitle').textContent = '오늘  ' + t.date;
+  gate($('tdGate'), t.gate);
+  $('tdC1').textContent = t.c1 || '-';
+  $('tdC2').textContent = t.c2 || '-';
+  $('tdW1').textContent = pct(t.half);
+  $('tdW2').textContent = pct(t.half);
+  $('tdR1').textContent = pct(t.r1, true); $('tdR1').className = 'rt ' + cls(t.r1);
+  $('tdR2').textContent = pct(t.r2, true); $('tdR2').className = 'rt ' + cls(t.r2);
+  $('tdCash').textContent = pct(1 - t.total);
+  $('tdTot').textContent  = pct(t.total);
+
+  $('tmTitle').textContent = '내일  ' + m.date;
+  gate($('tmGate'), m.gate);
+  $('tmC1').textContent = m.c1 || '-';
+  $('tmC2').textContent = m.c2 || '-';
+  $('tmW1').textContent = pct(m.half);
+  $('tmW2').textContent = pct(m.half);
+  $('tmCash').textContent = pct(1 - m.total);
+  $('tmTot').textContent  = pct(m.total);
+
+  var a = d.stats.all, y = d.stats.y1;
+  var rows = [
+    ['표본(투자일)', a.n, y.n, 'n'],
+    ['상승확률', a.pUp, y.pUp, 'p'],
+    ['하락확률', a.pDown, y.pDown, 'p'],
+    ['평균 상승폭', a.avgUp, y.avgUp, 's'],
+    ['평균 하락폭', a.avgDown, y.avgDown, 's'],
+    ['기대수익률(1일)', a.exp, y.exp, 's', true],
+    ['손익비', a.ratio, y.ratio, 'r'],
+    ['일 최대손실', a.worst, y.worst, 's'],
+    ['일별 표준편차', a.sd, y.sd, 'p']
+  ];
+  var html = '';
+  rows.forEach(function (r) {
+    function cell(v) {
+      if (v === null || v === undefined) return '<td>-</td>';
+      if (r[3] === 'n') return '<td>' + Number(v).toLocaleString() + '</td>';
+      if (r[3] === 'r') return '<td>' + Number(v).toFixed(2) + '</td>';
+      if (r[3] === 'p') return '<td>' + pct(v) + '</td>';
+      return '<td class="' + cls(v) + '">' + pct(v, true) + '</td>';
+    }
+    html += '<tr' + (r[4] ? ' class="key"' : '') + '><td>' + r[0] + '</td>' + cell(r[1]) + cell(r[2]) + '</tr>';
+  });
+  $('stBody').innerHTML = html;
+}
+
+function load(hash, onFail) {
+  return fetchData(hash).then(function (d) {
+    if (d && d.ok) { render(d); show('app'); return true; }
+    if (onFail) onFail(d);
+    return false;
+  }).catch(function (e) {
+    if (onFail) onFail({ error: 'network', message: String(e) });
+    return false;
+  });
+}
+
+function msgOf(d) {
+  if (!d) return '데이터를 불러오지 못했습니다.';
+  if (d.error === 'unauthorized') return '비밀번호가 올바르지 않습니다.';
+  if (d.error === 'setup') return '서버에 비밀번호가 설정되지 않았습니다.';
+  if (d.error === 'network') return '네트워크 오류입니다. 잠시 후 다시 시도해 주세요.';
+  return '오류: ' + (d.message || d.error || '알 수 없음');
+}
+
+function startTimer(hash) {
+  if (TIMER) clearInterval(TIMER);
+  TIMER = setInterval(function () { load(hash); }, 5 * 60 * 1000);   // 5분
+}
+
+/* ── 이벤트 ── */
+$('btnLogin').addEventListener('click', function () {
+  var v = $('pw').value;
+  if (!v) { $('err').textContent = '비밀번호를 입력해 주세요.'; return; }
+  $('err').textContent = '확인 중…';
+  sha256(v).then(function (h) {
+    return load(h, function (d) { $('err').textContent = msgOf(d); }).then(function (ok) {
+      if (ok) { setHash(h); $('pw').value = ''; $('err').textContent = ''; startTimer(h); }
+    });
+  });
+});
+$('pw').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('btnLogin').click(); });
+
+$('btnReload').addEventListener('click', function () {
+  var h = getHash();
+  if (h) load(h, function (d) { alert(msgOf(d)); });
+});
+
+$('btnLogout').addEventListener('click', function () {
+  clearHash();
+  if (TIMER) clearInterval(TIMER);
+  show('login');
+});
+
+/* ── 시작 ── */
+(function () {
+  var h = getHash();
+  if (!h) { show('login'); return; }
+  show('app');
+  load(h, function (d) {
+    if (d && d.error === 'unauthorized') { clearHash(); show('login'); $('err').textContent = '비밀번호가 변경되었습니다. 다시 로그인해 주세요.'; }
+    else { $('stamp').textContent = msgOf(d); }
+  }).then(function (ok) { if (ok) startTimer(h); });
+})();
+</script>
+</body>
+</html>
