@@ -1545,12 +1545,24 @@ function summarize_(res, dateList, years) {
   mean /= n;
   var sharpe = (sd && sd > 0) ? (mean * 365) / (sd * Math.sqrt(365)) : '';
 
-  // 연도별 수익률 (해당 연도 복리 누적)
-  var yr = {};
-  years.forEach(function (y) { yr[y] = 1; });
+  // 연도별 수익률·MDD·일 최대손실 (매년 1/1 리셋)
+  var yr = {}, yMdd = {}, yWorst = {};
+  years.forEach(function (y) { yr[y] = 1; yMdd[y] = 0; yWorst[y] = 0; });
+
+  var curY = null, yIdx = 1, yPeak = 1;
+  var worst = 0;
   for (i = 0; i < n; i++) {
     var y = dateList[i].substring(0, 4);
-    if (yr[y] !== undefined) yr[y] *= (1 + res.daily[i]);
+    if (yr[y] === undefined) continue;
+    if (y !== curY) { curY = y; yIdx = 1; yPeak = 1; }
+
+    var v = res.daily[i];
+    yr[y] *= (1 + v);
+    yIdx  *= (1 + v);
+    yPeak  = Math.max(yPeak, yIdx);
+    yMdd[y]   = Math.min(yMdd[y], yIdx / yPeak - 1);
+    yWorst[y] = Math.min(yWorst[y], v);
+    worst     = Math.min(worst, v);
   }
   var yrOut = {};
   years.forEach(function (y) { yrOut[y] = yr[y] - 1; });
@@ -1558,7 +1570,8 @@ function summarize_(res, dateList, years) {
   return {
     cum: cum, gross: gross, mdd: mdd, cagr: cagr, sharpe: sharpe,
     win: invested ? wins / invested : '', turn: res.turn,
-    cost: totCost, rows: n, year: yrOut
+    cost: totCost, rows: n, worst: worst,
+    year: yrOut, yearMdd: yMdd, yearWorst: yWorst
   };
 }
 
@@ -1579,45 +1592,84 @@ function writeSummary_(sh, sums, years) {
   var head = ['지표'];
   STRATS.forEach(function (s) { head.push(stratLabel_(s)); });
 
-  var body = [head, ['누적수익률']];
-  years.forEach(function (y) { body.push([y + (y === years[years.length - 1] ? ' (진행중)' : '')]); });
-  body.push(['연평균(CAGR)'], ['최대낙폭(MDD)'], ['승률'], ['샤프비율'],
-            ['종목교체 횟수'], ['누적 거래비용'], ['비용차감 전 수익률'], ['거래일수']);
+  // 행 정의 : {label, pick, fmt, kind}
+  //   kind : 'sec'=구분선 / 'gap'=빈행 / 'val'=데이터
+  var W = STRATS.length;
+  var last = years[years.length - 1];
+  function yLabel(y) { return y + (y === last ? ' (진행중)' : ''); }
 
-  sums.forEach(function (m) {
-    var r = 1;
-    body[r++].push(m.cum);
-    years.forEach(function (y) { body[r++].push(m.year[y]); });
-    body[r++].push(m.cagr);
-    body[r++].push(m.mdd);
-    body[r++].push(m.win);
-    body[r++].push(m.sharpe);
-    body[r++].push(m.turn);
-    body[r++].push(m.cost);
-    body[r++].push(m.gross);
-    body[r++].push(m.rows);
+  var spec = [];
+  spec.push({ kind: 'sec', label: '■ 종합 성과' });
+  spec.push({ label: '누적수익률',        fmt: FMT_RATE,     pick: function (m) { return m.cum; } });
+  spec.push({ label: '연평균(CAGR)',      fmt: FMT_RATE,     pick: function (m) { return m.cagr; } });
+  spec.push({ label: '최대낙폭(MDD)',     fmt: FMT_MDD,      pick: function (m) { return m.mdd; } });
+  spec.push({ label: '일 최대손실',       fmt: FMT_MDD,      pick: function (m) { return m.worst; } });
+  spec.push({ label: '샤프비율',          fmt: '0.00',       pick: function (m) { return m.sharpe; } });
+  spec.push({ label: '승률',              fmt: '0.00%',      pick: function (m) { return m.win; } });
+
+  spec.push({ kind: 'gap' });
+  spec.push({ kind: 'sec', label: '■ 연도별 수익률' });
+  years.forEach(function (y) {
+    spec.push({ label: yLabel(y), fmt: FMT_RATE, pick: function (m) { return m.year[y]; } });
   });
 
-  var rows = body.length, cols = STRATS.length + 1;
+  spec.push({ kind: 'gap' });
+  spec.push({ kind: 'sec', label: '■ 연도별 최대낙폭(MDD)' });
+  years.forEach(function (y) {
+    spec.push({ label: yLabel(y), fmt: FMT_MDD, pick: function (m) { return m.yearMdd[y]; } });
+  });
+
+  spec.push({ kind: 'gap' });
+  spec.push({ kind: 'sec', label: '■ 연도별 일 최대손실' });
+  years.forEach(function (y) {
+    spec.push({ label: yLabel(y), fmt: FMT_MDD, pick: function (m) { return m.yearWorst[y]; } });
+  });
+
+  spec.push({ kind: 'gap' });
+  spec.push({ kind: 'sec', label: '■ 거래 정보' });
+  spec.push({ label: '종목교체 횟수',      fmt: '#,##0',     pick: function (m) { return m.turn; } });
+  spec.push({ label: '누적 거래비용',      fmt: '#,##0.00%', pick: function (m) { return m.cost; } });
+  spec.push({ label: '비용차감 전 수익률', fmt: FMT_RATE,    pick: function (m) { return m.gross; } });
+  spec.push({ label: '거래일수',           fmt: '#,##0',     pick: function (m) { return m.rows; } });
+
+  // 값 구성
+  var body = [head];
+  spec.forEach(function (s) {
+    var row = [s.kind === 'gap' ? '' : s.label];
+    for (var k = 0; k < W; k++) {
+      row.push((s.kind === 'sec' || s.kind === 'gap') ? '' : s.pick(sums[k]));
+    }
+    body.push(row);
+  });
+
+  var rows = body.length, cols = W + 1;
   sh.clear();
   sh.getRange(1, 1, rows, cols).setValues(body);
-  sh.getRange(1, 1, 1, cols).setFontWeight('bold');
-  sh.getRange(1, 1, rows, 1).setFontWeight('bold');
   sh.setFrozenRows(1);
   sh.setFrozenColumns(1);
-  sh.setColumnWidth(1, 150);
+  sh.setColumnWidth(1, 190);
+  for (var c = 2; c <= cols; c++) sh.setColumnWidth(c, 130);
 
-  var v = 2, w = STRATS.length;
-  var yn = years.length;
-  sh.getRange(2, v, 1 + yn, w).setNumberFormat(FMT_RATE);        // 누적 + 연도별
-  sh.getRange(2 + 1 + yn, v, 1, w).setNumberFormat(FMT_RATE);    // CAGR
-  sh.getRange(3 + 1 + yn, v, 1, w).setNumberFormat(FMT_MDD);     // MDD
-  sh.getRange(4 + 1 + yn, v, 1, w).setNumberFormat('0.00%');     // 승률
-  sh.getRange(5 + 1 + yn, v, 1, w).setNumberFormat('0.00');      // 샤프
-  sh.getRange(6 + 1 + yn, v, 1, w).setNumberFormat('#,##0');     // 교체횟수
-  sh.getRange(7 + 1 + yn, v, 1, w).setNumberFormat('#,##0.00%'); // 거래비용
-  sh.getRange(8 + 1 + yn, v, 1, w).setNumberFormat(FMT_RATE);    // 비용차감 전
-  sh.getRange(9 + 1 + yn, v, 1, w).setNumberFormat('#,##0');     // 거래일수
+  // 헤더
+  sh.getRange(1, 1, 1, cols).setFontWeight('bold')
+    .setBackground('#404040').setFontColor('#FFFFFF');
+  sh.setRowHeight(1, 30);
+
+  // 행별 서식
+  spec.forEach(function (s, i) {
+    var r = i + 2;
+    if (s.kind === 'sec') {
+      sh.getRange(r, 1, 1, cols).setBackground('#1F4E79').setFontColor('#FFFFFF').setFontWeight('bold');
+      sh.setRowHeight(r, 26);
+    } else if (s.kind === 'gap') {
+      sh.setRowHeight(r, 8);
+    } else {
+      sh.getRange(r, 1).setFontWeight('bold');
+      sh.getRange(r, 2, 1, W).setNumberFormat(s.fmt).setHorizontalAlignment('right');
+    }
+  });
+
+  sh.setHiddenGridlines(true);
 }
 
 /** 전 구간 시뮬레이션 실행 후 시트 기록 */
@@ -1828,10 +1880,16 @@ function buildStrategyDoc() {
 //  천 단위 쉼표 + 소수점 둘째 자리 규칙을 8개 시트에 일괄 적용
 // ============================================================
 
-/** 라벨(A열 또는 V열)에 따라 행 서식을 정해준다 */
-function formatByLabel_(label) {
+/**
+ * 라벨에 따라 행 서식을 정해준다.
+ * @param mode 직전에 만난 '■ …' 구분선 라벨 (없으면 null)
+ */
+function formatByLabel_(label, mode) {
   var s = String(label);
+  var m = String(mode || '');
+  if (/^\d{4}/.test(s) && (m.indexOf('MDD') >= 0 || m.indexOf('일 최대손실') >= 0)) return FMT_MDD;
   if (/^\d{4}/.test(s))                 return FMT_RATE;      // 연도 행
+  if (s === '일 최대손실')               return FMT_MDD;
   if (s === '누적수익률')                return FMT_RATE;
   if (s === '연평균(CAGR)')              return FMT_RATE;
   if (s === '비용차감 전 수익률')         return FMT_RATE;
@@ -1851,8 +1909,11 @@ function reformatLabeled_(sh, labelCol, firstRow, valueCol, numCols) {
   var last = sh.getLastRow();
   if (last < firstRow) return;
   var labels = sh.getRange(firstRow, labelCol, last - firstRow + 1, 1).getValues();
+  var mode = null;
   for (var i = 0; i < labels.length; i++) {
-    var f = formatByLabel_(labels[i][0]);
+    var L = String(labels[i][0]);
+    if (L.indexOf('■') === 0) { mode = L; continue; }   // 구분선 → 이후 행의 성격 결정
+    var f = formatByLabel_(L, mode);
     if (f) sh.getRange(firstRow + i, valueCol, 1, numCols).setNumberFormat(f);
   }
 }
@@ -1922,6 +1983,8 @@ function reformatAll() {
 // ============================================================
 
 var OD_SHEET = '오늘매매';
+var OD_CACHE_KEY = 'ORDER_JSON_V1';   // 스냅샷 캐시 키
+var OD_CACHE_SEC = 21600;             // 캐시 유지 6시간
 
 /** 투자결과 시트에서 매매 통계 산출 */
 function orderStats_(rows, fromDate) {
@@ -2147,6 +2210,8 @@ function syncOrder_() {
   var sh = getSheetByName_(OD_SHEET);
   if (sh.getLastRow() < 2) return;   // 아직 최초 구축 전
   writeOrder_(sh);
+  // 웹 응답용 스냅샷을 미리 만들어 둔다 (doGet 이 시트를 안 읽게)
+  try { saveOrderCache_(); } catch (e) { Logger.log('오늘매매 스냅샷 저장 실패: ' + e.message); }
 }
 
 /** 최초 1회 수동 실행 */
@@ -2198,27 +2263,48 @@ function doGet(e) {
       return jsonOut_({ error: 'unauthorized' });
     }
 
-    var D = orderData_();
-    return jsonOut_({
-      ok: true,
-      stamp: D.stamp,
-      today: {
-        date: D.today.date, gate: D.today.gate,
-        total: D.today.total, half: D.today.half,
-        c1: D.today.c1, c2: D.today.c2,
-        r1: (typeof D.today.r1 === 'number') ? D.today.r1 : null,
-        r2: (typeof D.today.r2 === 'number') ? D.today.r2 : null
-      },
-      tomorrow: {
-        date: D.tomorrow.date, gate: D.tomorrow.gate,
-        total: D.tomorrow.total, half: D.tomorrow.half,
-        c1: D.tomorrow.c1, c2: D.tomorrow.c2
-      },
-      stats: { all: statOut_(D.all), y1: statOut_(D.y1) }
-    });
+    // 새로고침(fresh=1)이면 캐시를 무시하고 시트에서 직접 다시 읽는다
+    var fresh = (e && e.parameter && String(e.parameter.fresh) === '1');
+    if (!fresh) {
+      var hit = CacheService.getScriptCache().get(OD_CACHE_KEY);
+      if (hit) {
+        return ContentService.createTextOutput(hit)
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+    var text = saveOrderCache_();          // 시트 읽어 계산 + 캐시 저장
+    return ContentService.createTextOutput(text)
+      .setMimeType(ContentService.MimeType.JSON);
+
   } catch (err) {
     return jsonOut_({ error: 'server', message: String(err && err.message ? err.message : err) });
   }
+}
+
+/** 오늘매매 응답 본문(JSON 문자열) 생성 후 캐시에 저장 */
+function saveOrderCache_() {
+  var D = orderData_();
+  var payload = {
+    ok: true,
+    stamp: D.stamp,
+    source: 'sheet',
+    today: {
+      date: D.today.date, gate: D.today.gate,
+      total: D.today.total, half: D.today.half,
+      c1: D.today.c1, c2: D.today.c2,
+      r1: (typeof D.today.r1 === 'number') ? D.today.r1 : null,
+      r2: (typeof D.today.r2 === 'number') ? D.today.r2 : null
+    },
+    tomorrow: {
+      date: D.tomorrow.date, gate: D.tomorrow.gate,
+      total: D.tomorrow.total, half: D.tomorrow.half,
+      c1: D.tomorrow.c1, c2: D.tomorrow.c2
+    },
+    stats: { all: statOut_(D.all), y1: statOut_(D.y1) }
+  };
+  var text = JSON.stringify(payload);
+  try { CacheService.getScriptCache().put(OD_CACHE_KEY, text, OD_CACHE_SEC); } catch (e) {}
+  return text;
 }
 
 /** 통계 객체를 JSON 안전한 형태로 변환 */

@@ -183,9 +183,55 @@ function show(which) {
   $('app').className   = (which === 'app')   ? 'on' : '';
 }
 
-function fetchData(hash) {
-  return fetch(API_URL + '?h=' + encodeURIComponent(hash), { cache: 'no-store' })
-    .then(function (r) { return r.json(); });
+var LAST_KEY = 'ottm_last';      // 마지막 성공 데이터 보존
+var TIMEOUT  = 12000;            // 12초
+var RETRY    = 3;                // 최대 3회 시도
+
+/* 타임아웃이 걸린 단일 호출 */
+function once(hash, fresh) {
+  var url = API_URL + '?h=' + encodeURIComponent(hash) + (fresh ? '&fresh=1' : '');
+  var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  var t = setTimeout(function () { if (ctl) ctl.abort(); }, TIMEOUT);
+  var opt = { cache: 'no-store' };
+  if (ctl) opt.signal = ctl.signal;
+  return fetch(url, opt)
+    .then(function (r) {
+      clearTimeout(t);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .catch(function (e) { clearTimeout(t); throw e; });
+}
+
+/* 재시도 포함 호출 : 1초 → 3초 간격 */
+function fetchData(hash, fresh, onRetry) {
+  var delays = [1000, 3000];
+  function attempt(i) {
+    return once(hash, fresh).catch(function (e) {
+      if (i >= RETRY - 1) throw e;
+      if (onRetry) onRetry(i + 2, RETRY);
+      return new Promise(function (res) { setTimeout(res, delays[i] || 3000); })
+        .then(function () { return attempt(i + 1); });
+    });
+  }
+  return attempt(0);
+}
+
+/* 마지막 성공 데이터 */
+function saveLast(d) {
+  try { localStorage.setItem(LAST_KEY, JSON.stringify({ t: Date.now(), d: d })); } catch (e) {}
+}
+function loadLast() {
+  try {
+    var v = localStorage.getItem(LAST_KEY);
+    return v ? JSON.parse(v) : null;
+  } catch (e) { return null; }
+}
+function agoText(ms) {
+  var m = Math.floor((Date.now() - ms) / 60000);
+  if (m < 1) return '방금 전';
+  if (m < 60) return m + '분 전';
+  return Math.floor(m / 60) + '시간 전';
 }
 
 function render(d) {
@@ -245,28 +291,49 @@ function render(d) {
   $('stBody').innerHTML = html;
 }
 
-function load(hash, onFail) {
-  return fetchData(hash).then(function (d) {
-    if (d && d.ok) { render(d); show('app'); return true; }
+function load(hash, onFail, fresh) {
+  return fetchData(hash, fresh, function (cur, tot) {
+    $('stamp').textContent = '서버 응답 지연 — 재시도 ' + cur + '/' + tot + '…';
+  }).then(function (d) {
+    if (d && d.ok) { render(d); saveLast(d); show('app'); return true; }
     if (onFail) onFail(d);
     return false;
   }).catch(function (e) {
-    if (onFail) onFail({ error: 'network', message: String(e) });
+    if (onFail) onFail({ error: 'network', message: String(e && e.message ? e.message : e) });
     return false;
   });
+}
+
+/* 실패 시 : 마지막 성공 데이터로 화면을 채우고 경과 시간을 알린다 */
+function fallback(d) {
+  var L = loadLast();
+  if (L && L.d) {
+    render(L.d);
+    show('app');
+    $('stamp').textContent = '⚠ ' + agoText(L.t) + ' 데이터 (' + msgOf(d) + ')';
+    return true;
+  }
+  return false;
 }
 
 function msgOf(d) {
   if (!d) return '데이터를 불러오지 못했습니다.';
   if (d.error === 'unauthorized') return '비밀번호가 올바르지 않습니다.';
   if (d.error === 'setup') return '서버에 비밀번호가 설정되지 않았습니다.';
-  if (d.error === 'network') return '네트워크 오류입니다. 잠시 후 다시 시도해 주세요.';
+  if (d.error === 'network') {
+    var m = String(d.message || '');
+    if (m.indexOf('abort') >= 0) return '서버 응답 시간 초과';
+    if (m.indexOf('HTTP') >= 0) return '서버 오류 (' + m + ')';
+    return '서버에 연결하지 못했습니다';
+  }
   return '오류: ' + (d.message || d.error || '알 수 없음');
 }
 
 function startTimer(hash) {
   if (TIMER) clearInterval(TIMER);
-  TIMER = setInterval(function () { load(hash); }, 5 * 60 * 1000);   // 5분
+  TIMER = setInterval(function () {
+    load(hash, function (d) { fallback(d); });      // 자동 갱신은 캐시 경로
+  }, 5 * 60 * 1000);
 }
 
 /* ── 이벤트 ── */
@@ -284,7 +351,17 @@ $('pw').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('btn
 
 $('btnReload').addEventListener('click', function () {
   var h = getHash();
-  if (h) load(h, function (d) { alert(msgOf(d)); });
+  if (!h) return;
+  var btn = $('btnReload');
+  if (btn.disabled) return;                       // 중복 클릭 방지
+  btn.disabled = true;
+  btn.textContent = '불러오는 중…';
+  $('stamp').textContent = '최신 데이터를 가져오는 중…';
+  load(h, function (d) { if (!fallback(d)) $('stamp').textContent = msgOf(d); }, true)
+    .then(function () {
+      btn.disabled = false;
+      btn.textContent = '새로고침';
+    });
 });
 
 $('btnLogout').addEventListener('click', function () {
@@ -298,10 +375,16 @@ $('btnLogout').addEventListener('click', function () {
   var h = getHash();
   if (!h) { show('login'); return; }
   show('app');
+  var L = loadLast();
+  if (L && L.d) { render(L.d); $('stamp').textContent = '⚠ ' + agoText(L.t) + ' 데이터 · 갱신 중…'; }
   load(h, function (d) {
-    if (d && d.error === 'unauthorized') { clearHash(); show('login'); $('err').textContent = '비밀번호가 변경되었습니다. 다시 로그인해 주세요.'; }
-    else { $('stamp').textContent = msgOf(d); }
-  }).then(function (ok) { if (ok) startTimer(h); });
+    if (d && d.error === 'unauthorized') {
+      clearHash(); show('login');
+      $('err').textContent = '비밀번호가 변경되었습니다. 다시 로그인해 주세요.';
+    } else if (!fallback(d)) {
+      $('stamp').textContent = msgOf(d);
+    }
+  }).then(function (ok) { if (ok) startTimer(h); else startTimer(h); });
 })();
 </script>
 </body>
