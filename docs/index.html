@@ -59,6 +59,9 @@
   .chip{font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px}
   .chip.ok{background:var(--okbg);color:var(--okfg)}
   .chip.ng{background:var(--ngbg);color:var(--ngfg)}
+  .chip.dir{background:rgba(255,255,255,.85);color:#333}
+  .chip.dir.down{background:var(--ngbg);color:var(--ngfg)}
+  .chip.hide{display:none}
 
   .pair{display:flex;gap:1px;background:var(--line)}
   .slot{flex:1;background:#fff;padding:15px 8px;text-align:center}
@@ -108,26 +111,27 @@
   <div class="sub" id="stamp">불러오는 중…</div>
 
   <div class="card">
-    <div class="hd today"><span class="ttl" id="tdTitle">오늘</span><span class="chip" id="tdGate">-</span></div>
+    <div class="hd today"><span class="ttl" id="tdTitle">오늘</span><span class="chip dir hide" id="tdDir"></span><span class="chip" id="tdGate">-</span></div>
     <div class="pair">
       <div class="slot"><div class="nm" id="tdC1">-</div><div class="wt" id="tdW1">-</div><div class="rt" id="tdR1">-</div></div>
       <div class="slot"><div class="nm" id="tdC2">-</div><div class="wt" id="tdW2">-</div><div class="rt" id="tdR2">-</div></div>
     </div>
     <div class="foot"><span class="cash">현금 <b id="tdCash">-</b></span><span>총비중 <b id="tdTot">-</b></span></div>
+    <div class="note" id="tdNote" hidden></div>
   </div>
 
   <div class="card">
-    <div class="hd tmr"><span class="ttl" id="tmTitle">내일</span><span class="chip" id="tmGate">-</span></div>
+    <div class="hd tmr"><span class="ttl" id="tmTitle">내일</span><span class="chip dir hide" id="tmDir"></span><span class="chip" id="tmGate">-</span></div>
     <div class="pair">
       <div class="slot"><div class="nm" id="tmC1">-</div><div class="wt" id="tmW1">-</div><div class="sub2">MA3변동 1위</div></div>
       <div class="slot"><div class="nm" id="tmC2">-</div><div class="wt" id="tmW2">-</div><div class="sub2">MA3변동 2위</div></div>
     </div>
     <div class="foot"><span class="cash">현금 <b id="tmCash">-</b></span><span>총비중 <b id="tmTot">-</b></span></div>
-    <div class="note">⚠ 내일 오전 9시 확정 전까지 순위가 바뀌면 종목도 바뀝니다</div>
+    <div class="note" id="tmNote">⚠ 내일 오전 9시 확정 전까지 순위가 바뀌면 종목도 바뀝니다</div>
   </div>
 
   <div class="card">
-    <div class="hd stat"><span class="ttl">매수 시 통계</span></div>
+    <div class="hd stat"><span class="ttl" id="stTitle">매수 시 통계</span></div>
     <table>
       <thead><tr><th>지표</th><th>전체기간</th><th>최근 1년</th></tr></thead>
       <tbody id="stBody"></tbody>
@@ -244,9 +248,29 @@ function render(d) {
     el.className = 'chip ' + (ok ? 'ok' : 'ng');
   }
 
+  /* 하락탈출 방향 배지 : ↓ 면 붉게 강조, 없으면 숨김 */
+  function dirChip(el, dir) {
+    if (!dir) { el.className = 'chip dir hide'; return; }
+    var down = (dir === '↓');
+    el.textContent = down ? '↓ 하락탈출' : dir;
+    el.className = 'chip dir' + (down ? ' down' : '');
+  }
+
+  /* 비중 0인 사유 안내 */
+  function noteOf(el, o) {
+    if (o.total > 0) { el.hidden = true; return; }
+    el.hidden = false;
+    if (o.gate !== 'ok') el.textContent = '⚠ BTC가 120일선 아래 — 전략상 현금 보유';
+    else if (o.dir === '↓') el.textContent = '⚠ 투자비중 감소(↓) — 하락탈출 발동, 오늘은 현금';
+    else el.textContent = '⚠ 투자 조건 미충족 — 현금 보유';
+  }
+
   var t = d.today, m = d.tomorrow;
+  if (d.strategy) { $('stTitle').textContent = '매수 시 통계 (' + d.strategy + ')'; }
   $('tdTitle').textContent = '오늘  ' + t.date;
   gate($('tdGate'), t.gate);
+  dirChip($('tdDir'), t.dir);
+  noteOf($('tdNote'), t);
   $('tdC1').textContent = t.c1 || '-';
   $('tdC2').textContent = t.c2 || '-';
   $('tdW1').textContent = pct(t.half);
@@ -258,6 +282,12 @@ function render(d) {
 
   $('tmTitle').textContent = '내일  ' + m.date;
   gate($('tmGate'), m.gate);
+  dirChip($('tmDir'), m.dir);
+  if (m.total <= 0 && m.dir === '↓') {
+    $('tmNote').textContent = '⚠ 투자비중 감소(↓) — 하락탈출 발동, 내일은 현금 (09시 전까지 바뀔 수 있음)';
+  } else {
+    $('tmNote').textContent = '⚠ 내일 오전 9시 확정 전까지 순위가 바뀌면 종목도 바뀝니다';
+  }
   $('tmC1').textContent = m.c1 || '-';
   $('tmC2').textContent = m.c2 || '-';
   $('tmW1').textContent = pct(m.half);

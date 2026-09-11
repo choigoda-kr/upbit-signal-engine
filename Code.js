@@ -293,6 +293,9 @@ function updateCurrent() {
   try { syncAllocation_(); } catch (e) { Logger.log('투자비중 동기화 실패(현재가): ' + e.message); }
   try { syncResult_(); } catch (e) { Logger.log('투자결과 동기화 실패(현재가): ' + e.message); }
   try { syncOrder_(); } catch (e) { Logger.log('오늘매매 동기화 실패(현재가): ' + e.message); }
+  try { syncAllocation2_(); } catch (e) { Logger.log('투자비중(하락탈출) 실패(현재가): ' + e.message); }
+  try { syncResult2_(); } catch (e) { Logger.log('투자결과(하락탈출) 실패(현재가): ' + e.message); }
+  try { syncOrder2_(); } catch (e) { Logger.log('오늘매매(하락탈출) 실패(현재가): ' + e.message); }
 }
 
 
@@ -350,6 +353,9 @@ function finalizeDaily() {
   try { syncMonthly_(); } catch (e) { Logger.log('월별수익률 동기화 실패: ' + e.message); }
   try { syncComparison_(); } catch (e) { Logger.log('전략비교 동기화 실패: ' + e.message); }
   try { syncOrder_(); } catch (e) { Logger.log('오늘매매 동기화 실패(일일확정): ' + e.message); }
+  try { syncAllocation2_(); } catch (e) { Logger.log('투자비중(하락탈출) 실패(일일확정): ' + e.message); }
+  try { syncResult2_(); } catch (e) { Logger.log('투자결과(하락탈출) 실패(일일확정): ' + e.message); }
+  try { syncOrder2_(); } catch (e) { Logger.log('오늘매매(하락탈출) 실패(일일확정): ' + e.message); }
 
   Logger.log('일일 확정 완료 : ' + lastDate + ' 종가 고정, ' + today + ' 현재가 행 생성');
 }
@@ -809,6 +815,7 @@ function computeAllocRow_(pRow, mRow, cRow) {
   }
 
   return [gate, ratio].concat(contrib).concat([N, weight]).concat(rank);
+  // 결과 배열 위치 : AR_IDX_N(종목수) / AR_IDX_W(투자비중) 상수를 반드시 사용할 것
 }
 
 /** 투자비중 시트 헤더 */
@@ -1293,7 +1300,6 @@ var SC_VOL_N  = 20;              // 변동성 관측일
 var SC_VOL_T  = 0.40;            // 목표 연변동성 40%
 var MOM_P     = [12, 60, 120];   // 다기간 모멘텀 기간
 var MOM_W     = [0.5, 0.3, 0.2]; // 등수 가중치
-var SC_TOTAL  = 20;              // A~T (날짜 + 6전략x3열 + 갱신시각)
 var SS_SHEET  = '전략비교 요약';   // 요약표 전용 시트
 
 var STRATS = [
@@ -1302,12 +1308,16 @@ var STRATS = [
   { key: 'A+D', name: '급등추종·안정형',    sel: 'A', vol: true,  weekly: false },
   { key: 'C+D', name: '추세가속·안정형',    sel: 'C', vol: true,  weekly: false },
   { key: 'E+D', name: '장기모멘텀·안정형',  sel: 'E', vol: true,  weekly: false },
-  { key: 'A-W', name: '급등추종·주간형',    sel: 'A', vol: false, weekly: true  }
+  { key: 'A-W', name: '급등추종·주간형',    sel: 'A', vol: false, weekly: true  },
+  { key: '하락탈출', name: '하락탈출',      sel: 'C', vol: false, weekly: false, dropZero: true }
 ];
+
+// 전략비교 시트 열 수 : 날짜 1 + 전략수x3 + 갱신시각 1 (전략이 늘면 자동 반영)
+var SC_TOTAL = 2 + STRATS.length * 3;
 
 /** 전략 표시명 : 한글명(코드) */
 function stratLabel_(st) {
-  return st.name + '(' + st.key + ')';
+  return (st.name === st.key) ? st.name : (st.name + '(' + st.key + ')');
 }
 
 /** 표본 표준편차 */
@@ -1430,6 +1440,7 @@ function simulateStrategy_(D, vol, st) {
   COINS.forEach(function () { prevW.push(0); });
   var holdSel = null, holdBase = 0;   // 주간 전략용 보유 상태
   var prevKey = '';
+  var prevBw  = null;                 // 하락탈출용 : 직전 행의 확정 투자비중
 
   for (var j = 0; j < D.a.length; j++) {
     var row  = D.a[j];
@@ -1438,6 +1449,11 @@ function simulateStrategy_(D, vol, st) {
     var gate = String(row[2]);
     var bw   = row[AL_COL_W - 1];                        // 확정 투자비중
     if (typeof bw !== 'number') bw = 0;
+
+    // 하락탈출 : 어제보다 비중이 줄어든 날은 투자하지 않는다
+    var rawBw = bw;
+    if (st.dropZero && prevBw !== null && bw < prevBw) bw = 0;
+    prevBw = rawBw;
 
     var ai = D.pos[date];                                // 적용일 인덱스
     var bi = D.pos[base];                                // 기준일 인덱스
@@ -1754,7 +1770,7 @@ function buildStrategyDoc() {
 
     ['전략명',
      '현재 전략 (기준선)', '이평 기울기', '현재 전략 + 변동성조절',
-     '이평 기울기 + 변동성조절', '다기간 모멘텀 + 변동성조절', '현재 전략 + 주간 리밸런싱'],
+     '이평 기울기 + 변동성조절', '다기간 모멘텀 + 변동성조절', '현재 전략 + 주간 리밸런싱', '하락탈출'],
 
     ['한 줄 정의',
      '어제 많이 오른 종목과 평균선이 가장 가파른 종목을 산다',
@@ -1762,7 +1778,7 @@ function buildStrategyDoc() {
      'A와 같은 종목을 사되 시장이 출렁이면 비중을 줄인다',
      'C와 같은 종목을 사되 시장이 출렁이면 비중을 줄인다',
      '단기·중기·장기에서 두루 강한 종목을 산다',
-     'A와 같지만 종목 교체를 주 1회로 제한한다'],
+     'A와 같지만 종목 교체를 주 1회로 제한한다', '추세가속과 같은 종목을 사되, 투자비중이 줄어드는 날은 쉰다'],
 
     ['종목 선정',
      '전일대비 1위 + MA3변동 1위 (겹치면 MA3변동 2위)',
@@ -1770,7 +1786,7 @@ function buildStrategyDoc() {
      'A와 동일',
      'C와 동일',
      '12·60·120일 수익률 등수를 0.5/0.3/0.2 가중 합산해 상위 2종',
-     'A와 동일 (매주 월요일에만 갱신)'],
+     'A와 동일 (매주 월요일에만 갱신)', 'MA3 변동률 상위 2종 (추세가속과 동일)'],
 
     ['비중 결정',
      'MA3 >= MA12 충족 종목수 / N, 두 종목에 절반씩',
@@ -1778,13 +1794,13 @@ function buildStrategyDoc() {
      'A의 비중 x (목표변동성 40% / 실현변동성)',
      'C의 비중 x (목표변동성 40% / 실현변동성)',
      'A의 비중 x (목표변동성 40% / 실현변동성)',
-     'A와 동일 (월요일 값을 그 주 내내 유지)'],
+     'A와 동일 (월요일 값을 그 주 내내 유지)', 'MA3 >= MA12 충족 종목수 / N, 두 종목에 절반씩'],
 
     ['게이트',
      'BTC 가격 < MA120 이면 비중 0', 'A와 동일', 'A와 동일', 'A와 동일', 'A와 동일',
-     'A와 동일 (게이트만은 매일 적용)'],
+     'A와 동일 (게이트만은 매일 적용)', 'A와 동일 + 어제보다 비중이 줄면(↓) 당일 투자 0'],
 
-    ['리밸런싱 주기', '매일', '매일', '매일', '매일', '매일', '주 1회 (월요일 09:00)'],
+    ['리밸런싱 주기', '매일', '매일', '매일', '매일', '매일', '주 1회 (월요일 09:00)', '매일 (비중 감소일은 현금)'],
 
     ['파라미터',
      'MA3, MA12, MA120',
@@ -1792,7 +1808,7 @@ function buildStrategyDoc() {
      'MA3, MA12, MA120, 관측 20일, 목표변동성 40%',
      'MA3, 관측 20일, 목표변동성 40%',
      '12/60/120일, 가중치 0.5/0.3/0.2, 관측 20일, 목표변동성 40%',
-     'MA3, MA12, MA120, 리밸런싱 요일'],
+     'MA3, MA12, MA120, 리밸런싱 요일', 'MA3, MA12, MA120 (추가 파라미터 없음)'],
 
     ['강점',
      '상승장에서 수익이 크다. 논리가 단순해 검증이 쉽다',
@@ -1800,7 +1816,7 @@ function buildStrategyDoc() {
      '급등락 구간에서 자동으로 위험을 줄여 MDD가 낮아진다',
      'C의 공격성을 변동성 조절로 완화한다',
      '단기 반짝 급등에 속지 않는다. 종목 교체가 적어 거래비용이 낮다',
-     '거래비용이 크게 줄어든다. 잦은 매매로 인한 소모를 막는다'],
+     '거래비용이 크게 줄어든다. 잦은 매매로 인한 소모를 막는다', '수익과 MDD가 동시에 개선된다. 매매 횟수도 오히려 줄어든다'],
 
     ['약점',
      '횡보장에서 헛신호가 잦다. 고점 부근 매수 경향',
@@ -1808,7 +1824,7 @@ function buildStrategyDoc() {
      '상승장에서 수익 일부를 포기한다. 파라미터가 늘어난다',
      '위와 동일',
      '급락장에서 빠져나오는 속도가 느리다. 상장 120일 미만 종목은 제외된다',
-     '주중 급변에 대응하지 못한다 (게이트만 작동)'],
+     '주중 급변에 대응하지 못한다 (게이트만 작동)', '등락하며 회복하는 해(2023년 같은)에 상승분을 놓친다'],
 
     ['데이터 출처',
      '투자비중 O·R·S열, N열',
@@ -1816,7 +1832,7 @@ function buildStrategyDoc() {
      '투자비중 + 일별시세 등락률',
      '변동률 + 일별시세 등락률',
      '일별시세 종가 + 등락률',
-     '투자비중 O·R·S열, N열'],
+     '투자비중 O·R·S열, N열', '투자비중 R·S열, N열의 전일 대비 증감'],
 
     ['예상 성격',
      '수익 高 / MDD 高 / 거래 잦음',
@@ -1824,7 +1840,7 @@ function buildStrategyDoc() {
      '수익 中 / MDD 低 / 거래 잦음',
      '수익 中 / MDD 低 / 거래 잦음',
      '수익 中 / MDD 中 / 거래 드묾',
-     '수익 中 / MDD 高 / 거래 드묾'],
+     '수익 中 / MDD 高 / 거래 드묾', '수익 高 / MDD 中 / 거래 보통'],
 
     ['', '', '', '', '', '', ''],
     ['■ 공통 고정 조건', '', '', '', '', '', ''],
@@ -1860,14 +1876,18 @@ function buildStrategyDoc() {
     ['5', '전 전략이 같은 8종목·같은 게이트를 쓰므로 서로 상관관계가 높다. 분산 효과를 과신하지 말 것', '', '', '', '', '']
   ];
 
-  sh.getRange(1, 1, doc.length, 7).setValues(doc);
-  sh.getRange(1, 1, 1, 7).setFontWeight('bold');
+  // 행마다 길이가 다르면 setValues 가 실패하므로 헤더 폭에 맞춰 채운다
+  var W = doc[0].length;
+  doc.forEach(function (r) { while (r.length < W) r.push(''); });
+
+  sh.getRange(1, 1, doc.length, W).setValues(doc);
+  sh.getRange(1, 1, 1, W).setFontWeight('bold');
   sh.getRange(1, 1, doc.length, 1).setFontWeight('bold');
   sh.setFrozenRows(1);
   sh.setFrozenColumns(1);
   sh.setColumnWidth(1, 130);
-  for (var c = 2; c <= 7; c++) sh.setColumnWidth(c, 260);
-  sh.getRange(1, 1, doc.length, 7).setVerticalAlignment('top').setWrap(true);
+  for (var c = 2; c <= W; c++) sh.setColumnWidth(c, 260);
+  sh.getRange(1, 1, doc.length, W).setVerticalAlignment('top').setWrap(true);
 
   SpreadsheetApp.flush();
   Logger.log('전략설명 구축 완료 : ' + doc.length + '행');
@@ -2210,14 +2230,423 @@ function syncOrder_() {
   var sh = getSheetByName_(OD_SHEET);
   if (sh.getLastRow() < 2) return;   // 아직 최초 구축 전
   writeOrder_(sh);
-  // 웹 응답용 스냅샷을 미리 만들어 둔다 (doGet 이 시트를 안 읽게)
-  try { saveOrderCache_(); } catch (e) { Logger.log('오늘매매 스냅샷 저장 실패: ' + e.message); }
+  // 웹 응답용 스냅샷 갱신 (웹이 추세가속을 보고 있을 때만)
+  if (WEB_STRATEGY !== '하락탈출') {
+    try { saveOrderCache_(); } catch (e) { Logger.log('오늘매매 스냅샷 저장 실패: ' + e.message); }
+  }
 }
 
 /** 최초 1회 수동 실행 */
 function buildOrder() {
   writeOrder_(getSheetByName_(OD_SHEET));
   Logger.log('오늘매매 구축 완료');
+}
+
+
+// ============================================================
+//  하락탈출 전략 - 투자비중/투자결과/오늘매매 (별도 시트 3종)
+// ------------------------------------------------------------
+//  규칙 : 어제보다 투자비중이 줄어든 날(↓)은 투자하지 않는다.
+//         유지(—)·증가(↑) 인 날은 원래 비중대로 투자한다.
+//  · 종목 선정·게이트·비중 계산식은 기존(추세가속)과 동일
+//  · 기존 11개 시트는 전혀 건드리지 않는다
+// ============================================================
+
+// computeAllocRow_() 결과 배열 내 위치 — 직접 숫자를 세지 말고 이 상수를 쓸 것
+var AR_IDX_N = 2 + COINS.length;       // 종목수 N
+var AR_IDX_W = 3 + COINS.length;       // 투자비중 weight
+
+var A2_SHEET      = '투자비중(하락탈출)';
+var R2_SHEET      = '투자결과(하락탈출)';
+var O2_SHEET      = '오늘매매(하락탈출)';
+var A2_TOTAL      = 24;   // A~X
+var A2_COL_PREV   = 21;   // U : 전일비중
+var A2_COL_DIR    = 22;   // V : 방향
+var A2_COL_FINAL  = 23;   // W : 최종비중 (실제 투자)
+var A2_COL_STAMP  = 24;   // X : 갱신시각
+var O2_CACHE_KEY  = 'ORDER2_JSON_V1';
+
+// 웹 페이지가 바라볼 전략 — 이 값만 바꾸면 즉시 전환·복구된다
+//   '하락탈출'  : 오늘매매(하락탈출) 시트
+//   '추세가속'  : 오늘매매 시트 (기존)
+var WEB_STRATEGY = '하락탈출';
+
+/** 투자비중(하락탈출) 헤더 */
+function buildAL2Header_() {
+  return buildALHeader_().slice(0, AL_TOTAL - 1)      // 갱신시각 제외한 기존 20열
+    .concat(['전일비중', '방향', '최종비중', '갱신시각']);
+}
+
+/** 투자비중(하락탈출) 서식 */
+function applyAL2Format_(sh, startRow, numRows) {
+  sh.getRange(startRow, 1, numRows, 3).setNumberFormat('@');
+  sh.getRange(startRow, 4, numRows, 1).setNumberFormat(FMT_RATIO);
+  sh.getRange(startRow, AL_COL_FIRST, numRows, COINS.length).setNumberFormat(FMT_CONTRIB);
+  sh.getRange(startRow, AL_COL_N, numRows, 1).setNumberFormat('0');
+  sh.getRange(startRow, AL_COL_W, numRows, 1).setNumberFormat(FMT_WEIGHT);
+  sh.getRange(startRow, AL_COL_RANK, numRows, 6).setNumberFormat('@');
+  sh.getRange(startRow, A2_COL_PREV, numRows, 1).setNumberFormat(FMT_WEIGHT);
+  sh.getRange(startRow, A2_COL_DIR, numRows, 1).setNumberFormat('@').setHorizontalAlignment('center');
+  sh.getRange(startRow, A2_COL_FINAL, numRows, 1).setNumberFormat(FMT_WEIGHT);
+  sh.getRange(startRow, A2_COL_STAMP, numRows, 1).setNumberFormat('@');
+}
+
+/**
+ * 원비중·전일비중으로 방향과 최종비중을 결정
+ * 비중은 0~1 범위여야 한다. 벗어나면 잘못된 열을 읽은 것이므로 즉시 중단한다.
+ */
+function dropOut_(w, prev) {
+  if (typeof w !== 'number') return { dir: '', fin: '' };
+  if (w < 0 || w > 1) {
+    throw new Error('투자비중 값이 비정상입니다 (' + w + '). 0~1 범위여야 합니다. ' +
+                    'computeAllocRow_ 결과에서 잘못된 위치를 읽었는지 확인하세요.');
+  }
+  if (typeof prev !== 'number') return { dir: '—', fin: w };   // 첫 행
+  if (w < prev) return { dir: '↓', fin: 0 };
+  return { dir: (w > prev) ? '↑' : '—', fin: w };
+}
+
+/** 최초 1회 수동 실행 - 투자비중(하락탈출) 전 구간 */
+function buildAllocation2() {
+  var src   = getSheet_();
+  var maSh  = getMASheet_();
+  var crSh  = getSheetByName_(CR_SHEET);
+  var sLast = src.getLastRow();
+  if (sLast < 2) throw new Error('일별시세 데이터가 없습니다. initialLoad() 를 먼저 실행하세요.');
+  if (maSh.getLastRow() !== sLast) throw new Error('이동평균 시트가 어긋나 있습니다. buildMovingAverage() 를 먼저 실행하세요.');
+  if (crSh.getLastRow() !== sLast) throw new Error('변동률 시트가 어긋나 있습니다. buildChangeRate() 를 먼저 실행하세요.');
+
+  var srcFirst    = String(src.getRange(2, COL_DATE).getValue()).substring(0, 10);
+  var baseFirst   = addDays_(AL_START, -1);
+  var srcStartRow = 2 + dayDiff_(srcFirst, baseFirst);
+  if (srcStartRow < 2) throw new Error('일별시세 시작일이 기준일보다 늦습니다.');
+
+  var tgt = getSheetByName_(A2_SHEET);
+  tgt.clear();
+  tgt.getRange(1, 1, 1, A2_TOTAL).setValues([buildAL2Header_()]).setFontWeight('bold');
+  tgt.setFrozenRows(1);
+  tgt.setFrozenColumns(2);
+
+  var n     = sLast - srcStartRow + 1;
+  var dates = src.getRange(srcStartRow, COL_DATE, n, 1).getValues();
+  var body  = src.getRange(srcStartRow, COL_FIRST, n, COINS.length * 2).getValues();
+  var mbody = maSh.getRange(srcStartRow, MA_COL_FIRST, n, MA_PERIODS.length * COINS.length).getValues();
+  var cbody = crSh.getRange(srcStartRow, CR_COL_FIRST, n, (CR_PERIODS.length + 1) * COINS.length).getValues();
+
+  var grid = [], prevW = null;
+  for (var r = 0; r < n; r++) {
+    var base = String(dates[r][0]).substring(0, 10);
+    var core = computeAllocRow_(body[r], mbody[r], cbody[r]);   // 18개
+    var w    = core[AR_IDX_W];                                  // 원비중
+    var D    = dropOut_(w, prevW);
+    grid.push([addDays_(base, 1), base].concat(core)
+      .concat([(prevW === null) ? '' : prevW, D.dir, D.fin, r === n - 1 ? nowStamp_() : '']));
+    if (typeof w === 'number') prevW = w;
+  }
+
+  var CHUNK = 1000;
+  for (var s = 0; s < n; s += CHUNK) {
+    var part = grid.slice(s, Math.min(s + CHUNK, n));
+    tgt.getRange(2 + s, 1, part.length, A2_TOTAL).setValues(part);
+    applyAL2Format_(tgt, 2 + s, part.length);
+    SpreadsheetApp.flush();
+  }
+  Logger.log('투자비중(하락탈출) 구축 완료 : ' + n + '행');
+}
+
+/** 5분·일일 트리거 - 투자비중(하락탈출) 동기화 */
+function syncAllocation2_() {
+  var src   = getSheet_();
+  var maSh  = getMASheet_();
+  var crSh  = getSheetByName_(CR_SHEET);
+  var tgt   = getSheetByName_(A2_SHEET);
+  var sLast = src.getLastRow();
+  var tLast = tgt.getLastRow();
+  if (tLast < 2) return;
+
+  var srcFirst    = String(src.getRange(2, COL_DATE).getValue()).substring(0, 10);
+  var srcStartRow = 2 + dayDiff_(srcFirst, addDays_(AL_START, -1));
+  if (srcStartRow < 2) throw new Error('일별시세 시작일이 기준일보다 늦습니다.');
+
+  var nCols = COINS.length * 2;
+  var mCols = MA_PERIODS.length * COINS.length;
+  var cCols = (CR_PERIODS.length + 1) * COINS.length;
+  var hasCR = (crSh.getLastRow() === sLast);
+  var from  = Math.max(2, tLast);
+  var startSrcRow = srcStartRow + (from - 2);
+
+  // 직전 행의 원비중을 시트에서 읽어 방향 판정의 기준으로 삼는다
+  var prevW = (from > 2) ? tgt.getRange(from - 1, AL_COL_W).getValue() : null;
+  if (typeof prevW !== 'number') prevW = null;
+
+  var rows = [];
+  for (var r = startSrcRow; r <= sLast; r++) {
+    var base  = String(src.getRange(r, COL_DATE).getValue()).substring(0, 10);
+    var pRow  = src.getRange(r, COL_FIRST, 1, nCols).getValues()[0];
+    var mRow  = maSh.getRange(r, MA_COL_FIRST, 1, mCols).getValues()[0];
+    var cRow  = hasCR ? crSh.getRange(r, CR_COL_FIRST, 1, cCols).getValues()[0] : null;
+    var core  = computeAllocRow_(pRow, mRow, cRow);
+    var w     = core[AR_IDX_W];
+    var D     = dropOut_(w, prevW);
+    rows.push([addDays_(base, 1), base].concat(core)
+      .concat([(prevW === null) ? '' : prevW, D.dir, D.fin, (r === sLast) ? nowStamp_() : '']));
+    if (typeof w === 'number') prevW = w;
+  }
+  if (!rows.length) return;
+
+  tgt.getRange(from, 1, rows.length, A2_TOTAL).setValues(rows);
+  applyAL2Format_(tgt, from, rows.length);
+}
+
+
+/**
+ * 투자결과(하락탈출) 행 계산 - 기존 computeResultRows_ 과 같은 구조.
+ * 다른 점은 비중을 '최종비중(W열)'에서 가져온다는 것뿐이다.
+ */
+function computeResultRows2_(startAlRow) {
+  var al  = getSheetByName_(A2_SHEET);
+  var src = getSheet_();
+
+  var alLast = al.getLastRow();
+  if (alLast < 2) throw new Error('투자비중(하락탈출) 데이터가 없습니다. buildAllocation2() 를 먼저 실행하세요.');
+  var n = alLast - startAlRow + 1;
+  if (n < 1) return [];
+
+  var seed    = (startAlRow > 2) ? 1 : 0;
+  var readRow = startAlRow - seed;
+  var aBody   = al.getRange(readRow, 1, n + seed, A2_TOTAL).getValues();
+
+  var sLast    = src.getLastRow();
+  var srcFirst = String(src.getRange(2, COL_DATE).getValue()).substring(0, 10);
+  var srcStart = Math.max(2, 2 + dayDiff_(srcFirst, String(aBody[0][0]).substring(0, 10)));
+  var srcN     = sLast - srcStart + 1;
+  var sDates   = srcN > 0 ? src.getRange(srcStart, COL_DATE,  srcN, 1).getValues() : [];
+  var sBody    = srcN > 0 ? src.getRange(srcStart, COL_FIRST, srcN, COINS.length * 2).getValues() : [];
+  var pos = {};
+  for (var k = 0; k < srcN; k++) pos[String(sDates[k][0]).substring(0, 10)] = k;
+
+  function rateOf(date, coin) {
+    if (!coin || pos[date] === undefined) return '';
+    var ci = COINS.indexOf(coin);
+    if (ci < 0) return '';
+    var v = sBody[pos[date]][ci * 2 + 1];
+    return (typeof v === 'number') ? v : '';
+  }
+
+  var rows = [];
+  var year = null, idx = 1, peak = 1, mdd = 0;
+  var invested = 0, up = 0, down = 0;
+  var prevW = [];
+  COINS.forEach(function () { prevW.push(0); });
+
+  for (var i = 0; i < n + seed; i++) {
+    var a    = aBody[i];
+    var date = String(a[0]).substring(0, 10);
+    var y    = date.substring(0, 4);
+    var isSeed = (i < seed);
+
+    if (!isSeed && y !== year) {
+      year = y; idx = 1; peak = 1; mdd = 0;
+      invested = 0; up = 0; down = 0;
+    }
+
+    var w  = a[A2_COL_FINAL - 1];        // W열 : 최종비중 (하락탈출 적용)
+    var c1 = a[AL_COL_RANK + 2];         // R열
+    var c2 = a[AL_COL_RANK + 3];         // S열
+
+    var half = (typeof w === 'number') ? w / 2 : '';
+    var r1   = rateOf(date, c1);
+    var r2   = rateOf(date, c2);
+
+    var curW = [];
+    COINS.forEach(function () { curW.push(0); });
+    if (typeof half === 'number') {
+      [c1, c2].forEach(function (name) {
+        var k2 = COINS.indexOf(String(name || ''));
+        if (k2 >= 0) curW[k2] += half;
+      });
+    }
+
+    var gross = '', cost = '', daily = '';
+    if (pos[date] !== undefined && typeof half === 'number') {
+      gross = 0;
+      if (typeof r1 === 'number') gross += r1 * half;
+      if (typeof r2 === 'number') gross += r2 * half;
+      cost = 0;
+      COINS.forEach(function (c, k2) { cost += Math.abs(curW[k2] - prevW[k2]) * SC_FEE; });
+      daily = gross - cost;
+      prevW = curW;
+    }
+
+    if (isSeed) continue;
+
+    var period = '', drawdown = '';
+    var cntI = '', cntU = '', cntD = '', prob = '';
+    if (typeof daily === 'number') {
+      idx  *= (1 + daily);
+      peak  = Math.max(peak, idx);
+      mdd   = Math.min(mdd, idx / peak - 1);
+      period = idx - 1; drawdown = mdd;
+      if (typeof w === 'number' && w > 0) {
+        invested++;
+        if (daily > 0) up++; else if (daily < 0) down++;
+      }
+      cntI = invested; cntU = up; cntD = down;
+      prob = invested ? up / invested : '';
+    }
+
+    var stamp = (readRow + i >= alLast - 1) ? nowStamp_() : '';
+    rows.push([date, c1 || '', half, r1, c2 || '', half, r2,
+               cost, daily, period, drawdown,
+               cntI, cntU, cntD, prob, stamp]);
+  }
+  return rows;
+}
+
+/** 최초 1회 수동 실행 - 투자결과(하락탈출) */
+function buildResult2() {
+  var al = getSheetByName_(A2_SHEET);
+  if (al.getLastRow() < 2) throw new Error('투자비중(하락탈출) 이 없습니다. buildAllocation2() 를 먼저 실행하세요.');
+
+  var tgt = getSheetByName_(R2_SHEET);
+  tgt.clear();
+  tgt.getRange(1, 1, 1, RS_TOTAL).setValues([buildRSHeader_()]).setFontWeight('bold');
+  tgt.setFrozenRows(1);
+
+  var rows = computeResultRows2_(2);
+  var CHUNK = 1000;
+  for (var s = 0; s < rows.length; s += CHUNK) {
+    var part = rows.slice(s, Math.min(s + CHUNK, rows.length));
+    tgt.getRange(2 + s, 1, part.length, RS_TOTAL).setValues(part);
+    applyRSFormat_(tgt, 2 + s, part.length);
+    SpreadsheetApp.flush();
+  }
+  Logger.log('투자결과(하락탈출) 구축 완료 : ' + rows.length + '행');
+}
+
+/** 5분·일일 트리거 - 당해 연도 구간만 재계산 */
+function syncResult2_() {
+  var tgt = getSheetByName_(R2_SHEET);
+  if (tgt.getLastRow() < 2) return;
+
+  var al     = getSheetByName_(A2_SHEET);
+  var alLast = al.getLastRow();
+  var lastDate = String(al.getRange(alLast, 1).getValue()).substring(0, 10);
+  var start  = yearStartAlRow_(lastDate.substring(0, 4));
+
+  var rows = computeResultRows2_(start);
+  if (!rows.length) return;
+  tgt.getRange(start, 1, rows.length, RS_TOTAL).setValues(rows);
+  applyRSFormat_(tgt, start, rows.length);
+}
+
+
+// ── 오늘매매(하락탈출) ──────────────────────────────────────
+
+/** 오늘매매(하락탈출) 데이터 수집 */
+function orderData2_() {
+  var al = getSheetByName_(A2_SHEET);
+  var rs = getSheetByName_(R2_SHEET);
+  var alLast = al.getLastRow();
+  if (alLast < 3) throw new Error('투자비중(하락탈출) 데이터가 부족합니다. buildAllocation2() 를 먼저 실행하세요.');
+
+  var two = al.getRange(alLast - 1, 1, 2, A2_TOTAL).getValues();
+
+  function pack(row) {
+    var w = row[A2_COL_FINAL - 1];                 // 최종비중
+    if (typeof w !== 'number') w = 0;
+    return {
+      date: String(row[0]).substring(0, 10),
+      gate: String(row[2]),
+      dir:  String(row[A2_COL_DIR - 1] || ''),
+      raw:  row[AL_COL_W - 1],
+      total: w, half: w / 2,
+      c1: String(row[AL_COL_RANK + 2] || ''),
+      c2: String(row[AL_COL_RANK + 3] || '')
+    };
+  }
+  var T = pack(two[0]), M = pack(two[1]);
+
+  T.r1 = ''; T.r2 = '';
+  if (rs.getLastRow() >= alLast - 1) {
+    var rr = rs.getRange(alLast - 1, 1, 1, RS_TOTAL).getValues()[0];
+    T.r1 = rr[3]; T.r2 = rr[6];
+  }
+
+  var stAll = { n: 0 }, st1y = { n: 0 };
+  if (rs.getLastRow() > 1) {
+    var body = rs.getRange(2, 1, rs.getLastRow() - 1, RS_TOTAL).getValues();
+    stAll = orderStats_(body, null);
+    st1y  = orderStats_(body, addDays_(T.date, -365));
+  }
+  return { today: T, tomorrow: M, all: stAll, y1: st1y, stamp: nowStamp_() };
+}
+
+/** 오늘매매(하락탈출) 시트 기록 */
+function writeOrder2_(sh) {
+  var D = orderData2_();
+  var T = D.today, M = D.tomorrow;
+  var stAll = D.all, st1y = D.y1;
+
+  function note(o) {
+    if (o.dir === '↓') return '하락탈출 발동 — 현금';
+    return (o.dir === '↑') ? '비중 증가' : '비중 유지';
+  }
+
+  var g = [];
+  g.push(['■ 오늘  ' + T.date, '게이트', T.gate, '총비중', T.total]);
+  g.push(['구분', '종목', '비중', '당일 수익률', '상태']);
+  g.push(['종목1', T.c1, T.half, T.r1, T.total > 0 ? '보유중' : '현금']);
+  g.push(['종목2', T.c2, T.half, T.r2, T.total > 0 ? '보유중' : '현금']);
+  g.push(['현금', '', 1 - T.total, '', note(T)]);
+  g.push(['', '', '', '', '']);
+
+  g.push(['■ 내일  ' + M.date, '게이트', M.gate, '총비중', M.total]);
+  g.push(['구분', '종목', '비중', '현재 순위', '상태']);
+  g.push(['종목1', M.c1, M.half, 'MA3변동 1위', M.total > 0 ? '변동중' : '현금']);
+  g.push(['종목2', M.c2, M.half, 'MA3변동 2위', M.total > 0 ? '변동중' : '현금']);
+  g.push(['현금', '', 1 - M.total, '', note(M)]);
+  g.push(['※ 하락탈출 : 어제보다 투자비중이 줄어든 날(↓)은 투자하지 않습니다', '', '', '', '']);
+  g.push(['', '', '', '', '']);
+
+  g.push(['■ 매수 시 통계 (하락탈출 전략 · 거래비용 차감 후)', '', '', '', '']);
+  g.push(['지표', '전체기간', '최근 1년', '', '']);
+  g.push(['표본(투자일)', stAll.n, st1y.n, '', '']);
+  g.push(['상승확률', stAll.pUp, st1y.pUp, '', '']);
+  g.push(['하락확률', stAll.pDown, st1y.pDown, '', '']);
+  g.push(['평균 상승폭', stAll.avgUp, st1y.avgUp, '', '']);
+  g.push(['평균 하락폭', stAll.avgDown, st1y.avgDown, '', '']);
+  g.push(['기대수익률(1일)', stAll.exp, st1y.exp, '', '']);
+  g.push(['손익비', stAll.ratio, st1y.ratio, '', '']);
+  g.push(['일 최대손실', stAll.worst, st1y.worst, '', '']);
+  g.push(['일별 표준편차', stAll.sd, st1y.sd, '', '']);
+  g.push(['', '', '', '', '']);
+  g.push(['⚠ 위 통계는 과거 평균이며 미래를 보장하지 않습니다.', '', '', '', '']);
+  g.push(['⚠ 상승확률은 50% 안팎입니다. 수익은 확률이 아니라 손익비에서 나옵니다.', '', '', '', '']);
+  g.push(['갱신시각', nowStamp_(), '', '', '']);
+
+  sh.getRange(1, 1, 60, 10).breakApart();
+  sh.clear();
+  sh.getRange(1, 1, g.length, 5).setValues(g);
+  styleOrder_(sh, T, M, g.length);
+  SpreadsheetApp.flush();
+}
+
+/** 최초 1회 수동 실행 */
+function buildOrder2() {
+  writeOrder2_(getSheetByName_(O2_SHEET));
+  Logger.log('오늘매매(하락탈출) 구축 완료');
+}
+
+/** 5분·일일 트리거 */
+function syncOrder2_() {
+  var sh = getSheetByName_(O2_SHEET);
+  if (sh.getLastRow() < 2) return;
+  writeOrder2_(sh);
+  // 웹 응답용 스냅샷 갱신 (웹이 하락탈출을 보고 있을 때만)
+  if (WEB_STRATEGY === '하락탈출') {
+    try { saveOrderCache_(); } catch (e) { Logger.log('하락탈출 스냅샷 저장 실패: ' + e.message); }
+  }
 }
 
 
@@ -2265,8 +2694,9 @@ function doGet(e) {
 
     // 새로고침(fresh=1)이면 캐시를 무시하고 시트에서 직접 다시 읽는다
     var fresh = (e && e.parameter && String(e.parameter.fresh) === '1');
+    var key   = (WEB_STRATEGY === '하락탈출') ? O2_CACHE_KEY : OD_CACHE_KEY;
     if (!fresh) {
-      var hit = CacheService.getScriptCache().get(OD_CACHE_KEY);
+      var hit = CacheService.getScriptCache().get(key);
       if (hit) {
         return ContentService.createTextOutput(hit)
           .setMimeType(ContentService.MimeType.JSON);
@@ -2283,13 +2713,18 @@ function doGet(e) {
 
 /** 오늘매매 응답 본문(JSON 문자열) 생성 후 캐시에 저장 */
 function saveOrderCache_() {
-  var D = orderData_();
+  var isDrop = (WEB_STRATEGY === '하락탈출');
+  var D   = isDrop ? orderData2_() : orderData_();
+  var key = isDrop ? O2_CACHE_KEY : OD_CACHE_KEY;
+
   var payload = {
     ok: true,
     stamp: D.stamp,
+    strategy: WEB_STRATEGY,
     source: 'sheet',
     today: {
       date: D.today.date, gate: D.today.gate,
+      dir: D.today.dir || '',
       total: D.today.total, half: D.today.half,
       c1: D.today.c1, c2: D.today.c2,
       r1: (typeof D.today.r1 === 'number') ? D.today.r1 : null,
@@ -2297,13 +2732,14 @@ function saveOrderCache_() {
     },
     tomorrow: {
       date: D.tomorrow.date, gate: D.tomorrow.gate,
+      dir: D.tomorrow.dir || '',
       total: D.tomorrow.total, half: D.tomorrow.half,
       c1: D.tomorrow.c1, c2: D.tomorrow.c2
     },
     stats: { all: statOut_(D.all), y1: statOut_(D.y1) }
   };
   var text = JSON.stringify(payload);
-  try { CacheService.getScriptCache().put(OD_CACHE_KEY, text, OD_CACHE_SEC); } catch (e) {}
+  try { CacheService.getScriptCache().put(key, text, OD_CACHE_SEC); } catch (e) {}
   return text;
 }
 
