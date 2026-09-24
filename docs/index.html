@@ -134,6 +134,14 @@
     <div class="note" id="tmNote">⚠ 내일 오전 9시 확정 전까지 순위가 바뀌면 종목도 바뀝니다</div>
   </div>
 
+  <div class="card" id="ma3Card" hidden>
+    <div class="hd stat"><span class="ttl" id="ma3Title">MA3변동률</span></div>
+    <table>
+      <thead><tr><th>종목</th><th>오늘</th><th>어제</th><th>순위</th></tr></thead>
+      <tbody id="ma3Body"></tbody>
+    </table>
+  </div>
+
   <div class="card">
     <div class="hd stat"><span class="ttl" id="stTitle">매수 시 통계</span></div>
     <table>
@@ -323,6 +331,43 @@ function render(d) {
     html += '<tr' + (r[4] ? ' class="key"' : '') + '><td>' + r[0] + '</td>' + cell(r[1]) + cell(r[2]) + '</tr>';
   });
   $('stBody').innerHTML = html;
+
+  renderMA3(d.ma3);
+}
+
+/* MA3변동률 표 : 오늘 값 기준 내림차순, 1·2위는 투자 대상이라 강조 */
+function renderMA3(m) {
+  var card = $('ma3Card');
+  if (!m || !m.coins || !m.coins.length) { card.hidden = true; return; }
+
+  var list = m.coins.map(function (c, i) {
+    return { c: c, t: m.today[i], y: m.yesterday[i], i: i };
+  });
+  /* 값이 없는 종목은 뒤로 보낸다. 동점이면 원래 종목 순서를 지킨다 */
+  list.sort(function (a, b) {
+    var av = (typeof a.t === 'number'), bv = (typeof b.t === 'number');
+    if (av !== bv) return av ? -1 : 1;
+    if (!av) return a.i - b.i;
+    return (b.t - a.t) || (a.i - b.i);
+  });
+
+  var html = '';
+  list.forEach(function (o, k) {
+    var rank = (typeof o.t === 'number') ? (k + 1) : null;
+    var top  = (rank === 1 || rank === 2);
+    function cell(v) {
+      if (typeof v !== 'number') return '<td>-</td>';
+      return '<td class="' + cls(v) + '">' + pct(v, true) + '</td>';
+    }
+    html += '<tr' + (top ? ' class="key"' : '') + '>'
+          + '<td><b>' + o.c + '</b></td>'
+          + cell(o.t) + cell(o.y)
+          + '<td>' + (rank ? (top ? '▲ ' : '') + rank + '위' : '-') + '</td>'
+          + '</tr>';
+  });
+  $('ma3Body').innerHTML = html;
+  $('ma3Title').textContent = 'MA3변동률  ' + (m.dateT || '');
+  card.hidden = false;
 }
 
 function load(hash, onFail, fresh) {

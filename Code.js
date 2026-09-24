@@ -2711,6 +2711,37 @@ function doGet(e) {
   }
 }
 
+/**
+ * 웹 표시용 MA3변동률 수집 - 변동률 시트 마지막 2행(어제/오늘)
+ * 열 위치 : J~Q (MA3변동 블록). CR_COL_FIRST(B) 기준 COINS.length 칸 뒤부터 8칸.
+ * 읽기 전용이며 getRange 호출은 2회(날짜 1회 + 값 1회)뿐이다.
+ */
+function ma3Block_() {
+  try {
+    var cr   = getSheetByName_(CR_SHEET);
+    var last = cr.getLastRow();
+    if (last < 3) return null;
+
+    var firstCol = CR_COL_FIRST + COINS.length;   // J열 : MA3변동_BTC
+    var dates = cr.getRange(last - 1, COL_DATE, 2, 1).getValues();
+    var vals  = cr.getRange(last - 1, firstCol, 2, COINS.length).getValues();
+
+    function clean(arr) {
+      return arr.map(function (v) { return (typeof v === 'number' && isFinite(v)) ? v : null; });
+    }
+    return {
+      coins: COINS.slice(),
+      dateY: String(dates[0][0]).substring(0, 10),
+      dateT: String(dates[1][0]).substring(0, 10),
+      yesterday: clean(vals[0]),
+      today:     clean(vals[1])
+    };
+  } catch (e) {
+    Logger.log('MA3변동률 수집 실패: ' + e.message);
+    return null;   // 실패해도 기존 응답은 그대로 나가야 한다
+  }
+}
+
 /** 오늘매매 응답 본문(JSON 문자열) 생성 후 캐시에 저장 */
 function saveOrderCache_() {
   var isDrop = (WEB_STRATEGY === '하락탈출');
@@ -2736,7 +2767,8 @@ function saveOrderCache_() {
       total: D.tomorrow.total, half: D.tomorrow.half,
       c1: D.tomorrow.c1, c2: D.tomorrow.c2
     },
-    stats: { all: statOut_(D.all), y1: statOut_(D.y1) }
+    stats: { all: statOut_(D.all), y1: statOut_(D.y1) },
+    ma3: ma3Block_()
   };
   var text = JSON.stringify(payload);
   try { CacheService.getScriptCache().put(key, text, OD_CACHE_SEC); } catch (e) {}
