@@ -137,7 +137,7 @@
   <div class="card" id="ma3Card" hidden>
     <div class="hd stat"><span class="ttl" id="ma3Title">MA3변동률</span></div>
     <table>
-      <thead><tr><th>종목</th><th>오늘</th><th>어제</th><th>순위</th></tr></thead>
+      <thead><tr><th>종목</th><th>어제</th><th>오늘</th><th>순위</th></tr></thead>
       <tbody id="ma3Body"></tbody>
     </table>
   </div>
@@ -361,7 +361,7 @@ function renderMA3(m) {
     }
     html += '<tr' + (top ? ' class="key"' : '') + '>'
           + '<td><b>' + o.c + '</b></td>'
-          + cell(o.t) + cell(o.y)
+          + cell(o.y) + cell(o.t)
           + '<td>' + (rank ? (top ? '▲ ' : '') + rank + '위' : '-') + '</td>'
           + '</tr>';
   });
