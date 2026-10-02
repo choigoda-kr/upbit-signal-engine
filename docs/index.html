@@ -94,6 +94,9 @@
   .ghost{background:#fff;color:#666;border:1px solid #CFCFCF}
   .stamp{text-align:center;font-size:11px;color:#aaa;margin:14px 0 4px}
   .cash{color:#777}
+  .flg{font-size:.7em;font-weight:600;vertical-align:super;margin-left:2px}
+  .flg.ok{color:#2ecc71}
+  .flg.no{color:#999}
 </style>
 </head>
 <body>
@@ -355,13 +358,18 @@ function renderMA3(m) {
   list.forEach(function (o, k) {
     var rank = (typeof o.t === 'number') ? (k + 1) : null;
     var top  = (rank === 1 || rank === 2);
-    function cell(v) {
+    function cellF(v, flag) {
       if (typeof v !== 'number') return '<td>-</td>';
-      return '<td class="' + cls(v) + '">' + pct(v, true) + '</td>';
+      var mark = '';
+      if (flag === true)  mark = ' <span class="flg ok">(o)</span>';
+      if (flag === false) mark = ' <span class="flg no">(x)</span>';
+      return '<td class="' + cls(v) + '">' + pct(v, true) + mark + '</td>';
     }
+    var fY = (m.flagY && m.flagY.length > o.i) ? m.flagY[o.i] : null;
+    var fT = (m.flagT && m.flagT.length > o.i) ? m.flagT[o.i] : null;
     html += '<tr' + (top ? ' class="key"' : '') + '>'
           + '<td><b>' + o.c + '</b></td>'
-          + cell(o.y) + cell(o.t)
+          + cellF(o.y, fY) + cellF(o.t, fT)
           + '<td>' + (rank ? (top ? '▲ ' : '') + rank + '위' : '-') + '</td>'
           + '</tr>';
   });

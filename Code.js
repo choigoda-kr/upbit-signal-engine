@@ -2712,6 +2712,37 @@ function doGet(e) {
 }
 
 /**
+ * 투자비중(하락탈출) 시트에서 기준일 기준으로
+ * 종목별 투자 여부(기여값 > 0)를 boolean 배열로 반환
+ * @param {string} dateY  어제 날짜 (yyyy-MM-dd)
+ * @param {string} dateT  오늘 날짜 (yyyy-MM-dd)
+ * @return {{ flagY: boolean[]|null, flagT: boolean[]|null }}
+ */
+function getMA3AllocFlags_(dateY, dateT) {
+  var sh   = getSheetByName_(A2_SHEET);   // '투자비중(하락탈출)'
+  var last = sh.getLastRow();
+  if (last < 3) return { flagY: null, flagT: null };
+
+  // 마지막 2행 : 기준일(B열) + 기여값(E~L열)
+  var bases    = sh.getRange(last - 1, 2, 2, 1).getValues();                       // B열
+  var contribs = sh.getRange(last - 1, AL_COL_FIRST, 2, COINS.length).getValues(); // E~L열
+
+  function toFlags(row) {
+    return row.map(function (v) {
+      return (typeof v === 'number' && v > 0);
+    });
+  }
+
+  var bY = String(bases[0][0]).substring(0, 10);
+  var bT = String(bases[1][0]).substring(0, 10);
+
+  return {
+    flagY: (bY === dateY) ? toFlags(contribs[0]) : null,
+    flagT: (bT === dateT) ? toFlags(contribs[1]) : null
+  };
+}
+
+/**
  * 웹 표시용 MA3변동률 수집 - 변동률 시트 마지막 2행(어제/오늘)
  * 열 위치 : J~Q (MA3변동 블록). CR_COL_FIRST(B) 기준 COINS.length 칸 뒤부터 8칸.
  * 읽기 전용이며 getRange 호출은 2회(날짜 1회 + 값 1회)뿐이다.
@@ -2729,12 +2760,18 @@ function ma3Block_() {
     function clean(arr) {
       return arr.map(function (v) { return (typeof v === 'number' && isFinite(v)) ? v : null; });
     }
+    var dY = String(dates[0][0]).substring(0, 10);
+    var dT = String(dates[1][0]).substring(0, 10);
+    var allocFlags = getMA3AllocFlags_(dY, dT);
+
     return {
       coins: COINS.slice(),
-      dateY: String(dates[0][0]).substring(0, 10),
-      dateT: String(dates[1][0]).substring(0, 10),
+      dateY: dY,
+      dateT: dT,
       yesterday: clean(vals[0]),
-      today:     clean(vals[1])
+      today:     clean(vals[1]),
+      flagY: allocFlags.flagY,
+      flagT: allocFlags.flagT
     };
   } catch (e) {
     Logger.log('MA3변동률 수집 실패: ' + e.message);
